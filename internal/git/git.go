@@ -325,7 +325,7 @@ func gitSubcommand(args []string) (string, []string) {
 
 func gitSubcommandMutatesWorktree(cmd string, args []string) bool {
 	switch cmd {
-	case "checkout", "switch", "restore", "reset", "clean", "merge", "rebase", "pull", "rm", "cherry-pick", "revert", "am", "apply", "checkout-index", "read-tree", "sparse-checkout":
+	case "checkout", "switch", "restore", "reset", "clean", "merge", "rebase", "pull", "rm", "mv", "cherry-pick", "revert", "am", "apply", "checkout-index", "read-tree", "sparse-checkout":
 		return true
 	case "stash":
 		return stashArgsMutate(args)
@@ -357,15 +357,33 @@ func stashArgsMutate(args []string) bool {
 }
 
 func submoduleArgsMutate(args []string) bool {
-	if len(args) == 0 {
+	cmd := firstNonOptionSubcommand(args)
+	if cmd == "" {
 		return false
 	}
-	switch args[0] {
+	switch cmd {
 	case "update", "add", "deinit", "sync", "set-url", "set-branch", "absorbgitdirs":
 		return true
 	default:
 		return false
 	}
+}
+
+func firstNonOptionSubcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
 }
 
 func branchArgsMutate(args []string) bool {
@@ -486,14 +504,30 @@ func gitPathAbs(path, baseDir string) string {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(baseDir, path)
 	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
-	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return filepath.Clean(path)
 	}
-	return filepath.Clean(abs)
+	return filepath.Clean(resolveExistingSymlinkAncestors(abs))
+}
+
+func resolveExistingSymlinkAncestors(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr != nil || rel == "." {
+				return resolved
+			}
+			return filepath.Join(resolved, rel)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path
+		}
+	}
 }
 
 func protectedTownRuntimePath(path string) (string, bool) {
@@ -571,6 +605,11 @@ type cloneOptions struct {
 // cloneInternal runs `git clone` in an isolated temp directory, moves the result
 // to dest, and applies post-clone configuration (hooks or refspec).
 func (g *Git) cloneInternal(url, dest string, opts cloneOptions) error {
+	dest = gitPathAbs(dest, "")
+	if _, ok := protectedTownRuntimePath(dest); ok {
+		return fmt.Errorf("%w: clone destination %s", ErrUnsafeTownRootGitMutation, dest)
+	}
+
 	// Ensure destination directory's parent exists
 	destParent := filepath.Dir(dest)
 	if err := os.MkdirAll(destParent, 0755); err != nil {

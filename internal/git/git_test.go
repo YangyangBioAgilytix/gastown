@@ -247,6 +247,44 @@ func TestWorktreeAddCannotTargetTownRootRuntimePaths(t *testing.T) {
 			assertTownRootSafetyPreserved(t, root, before)
 		})
 	}
+
+	link := filepath.Join(t.TempDir(), "townlink")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	err := NewGitWithDir(bareDir, "").WorktreeAddFromRef(filepath.Join(link, ".runtime", "linked-worktree"), "polecat/town-root-symlink", "HEAD")
+	requireTownRootSafetyError(t, err)
+	assertTownRootSafetyPreserved(t, root, before)
+}
+
+func TestCloneCannotTargetTownRootRuntimePaths(t *testing.T) {
+	root := initTownRootSafetyRepo(t)
+	before := snapshotTownRootSafety(t, root)
+	src := initTestRepo(t)
+
+	err := NewGit(t.TempDir()).Clone(src, root)
+	requireTownRootSafetyError(t, err)
+	assertTownRootSafetyPreserved(t, root, before)
+
+	link := filepath.Join(t.TempDir(), "townlink")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	err = NewGit(t.TempDir()).Clone(src, filepath.Join(link, ".dolt-data", "clone"))
+	requireTownRootSafetyError(t, err)
+	assertTownRootSafetyPreserved(t, root, before)
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir town root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+	err = NewGit(t.TempDir()).Clone(src, filepath.Join(".runtime", "relative-clone"))
+	requireTownRootSafetyError(t, err)
+	assertTownRootSafetyPreserved(t, root, before)
 }
 
 func TestIsRepo(t *testing.T) {
