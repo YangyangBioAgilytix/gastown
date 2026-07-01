@@ -451,6 +451,59 @@ func TestBuildMutationBDEnvForcesWritableCommit(t *testing.T) {
 	}
 }
 
+func TestDeleteBeadsUseSupportedBdDeleteFlags(t *testing.T) {
+	ResetBdAllowStaleCacheForTest()
+	t.Cleanup(ResetBdAllowStaleCacheForTest)
+
+	logPath := installMockBDRecorder(t)
+	b := NewIsolated(t.TempDir())
+
+	cases := []struct {
+		name   string
+		delete func() error
+		want   string
+	}{
+		{
+			name:   "group",
+			delete: func() error { return b.DeleteGroupBead("ops-team") },
+			want:   "delete hq-group-ops-team --force",
+		},
+		{
+			name:   "channel",
+			delete: func() error { return b.DeleteChannelBead("alerts") },
+			want:   "delete hq-channel-alerts --force",
+		},
+		{
+			name:   "queue",
+			delete: func() error { return b.DeleteQueueBead("hq-q-work") },
+			want:   "delete hq-q-work --force",
+		},
+		{
+			name:   "rig",
+			delete: func() error { return b.DeleteRigBead("gastown") },
+			want:   "delete gt-rig-gastown --force",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.delete(); err != nil {
+				t.Fatalf("delete error = %v", err)
+			}
+		})
+	}
+
+	logOutput := readMockBDLog(t, logPath)
+	if strings.Contains(logOutput, "--hard") {
+		t.Fatalf("delete call used unsupported --hard flag:\n%s", logOutput)
+	}
+	for _, tc := range cases {
+		if !strings.Contains(logOutput, tc.want) {
+			t.Fatalf("bd log missing %q\nlog:\n%s", tc.want, logOutput)
+		}
+	}
+}
+
 func TestArgsAreReadOnlyClassifiesKnownReadCommands(t *testing.T) {
 	cases := [][]string{
 		{"--version"},
