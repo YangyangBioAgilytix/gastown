@@ -267,8 +267,8 @@ type Config struct {
 // DefaultConfig returns the default Dolt server configuration.
 //
 // Port priority is resolved by config.ResolveDoltPort so client and server
-// callsites share one precedence model: explicit env, running state, durable
-// config, daemon env, then DefaultPort.
+// callsites share one precedence model: explicit env, durable config, daemon
+// env, then DefaultPort.
 //
 // Other environment variables:
 //   - GT_DOLT_HOST → Host
